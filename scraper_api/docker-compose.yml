@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # 1. EL MOTOR DE BASE DE DATOS
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vuelos_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Persistencia: los datos no se borran al apagar el contenedor
+
+  # 2. TU API CORE (Y EL SCRAPER EN SEGUNDO PLANO)
+  api:
+    build: .
+    restart: always
+    command: gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    environment:
+      # Fijate que ahora el host es "db" (el nombre del servicio de arriba) y no "localhost"
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/vuelos_db
+      - API_KEY=${API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    depends_on:
+      - db
+
+  # 3. LA INTERFAZ CONVERSACIONAL
+  telegram_bot:
+    build: .
+    restart: always
+    command: python scraper/telegram_bot.py
+    environment:
+      # El bot le pega a la API usando el nombre del contenedor "api"
+      - API_URL=http://api:8000
+      - API_KEY=${API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
